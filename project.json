@@ -1,0 +1,20 @@
+{
+  "name": "x-media-vault",
+  "title": "خزنة وسائط X | X Media Vault",
+  "category": "أدوات X",
+  "description": "تحميل كل الوسائط من أي حساب Twitter/X.",
+  "liveUrl": "https://um9knv-igj9wr6gr-arcadawebapps6.vercel.app/",
+  "aliases": [],
+  "sourceLinks": [],
+  "originalTitle": "خزنة وسائط X | X Media Vault",
+  "originalDescription": "أداة متقدمة لاستخراج وتحميل كل وسائط أي حساب على منصة X — صور ومقاطع وGIF بجودة أصلية مع تحميل ZIP فائق السرعة",
+  "type": "static-website",
+  "archivedAt": "2026-10-15",
+  "readyForHosting": true,
+  "files": [
+    "assets/index-BWJ8dkab.js",
+    "assets/index-D5ThO1eu.css",
+    "favicon.svg",
+    "index.html"
+  ]
+}
