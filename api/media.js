@@ -7,7 +7,7 @@ export default async function handler(req, res) {
 
   const cleanUser = username.replace('@', '').trim();
   const media = [];
-  let profile = null;
+  let profile = { username: cleanUser, displayName: cleanUser, avatar: null, banner: null, bio: null, verified: false };
   let scannedTweets = 0;
 
   res.setHeader('Access-Control-Allow-Origin', '*');
