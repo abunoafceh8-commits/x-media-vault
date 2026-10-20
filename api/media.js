@@ -2,99 +2,153 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 
 export default async function handler(req, res) {
   const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-  const { username, type = 'all' } = body;
+  const { username, force = false } = body;
   if (!username) return res.status(400).json({ error: 'Username required' });
 
   const cleanUser = username.replace('@', '').trim();
-  const mediaItems = [];
+  const media = [];
+  let profile = null;
+  let scannedTweets = 0;
+
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   try {
-    // Method 1: Syndication
+    // Method 1: Twitter Syndication API
     try {
       const r = await fetch(`https://syndication.twitter.com/srv/timeline-profile/screen-name/${cleanUser}`, {
         headers: { 'User-Agent': UA },
-        signal: AbortSignal.timeout(8000)
+        signal: AbortSignal.timeout(10000)
       });
       const html = await r.text();
       
-      // Find all image URLs
-      const imgUrls = new Set();
-      const matches = html.match(/https:\/\/pbs\.twimg\.com\/media\/[A-Za-z0-9_-]+\.[a-z]+(\?[^\s"<>]*)?/g);
-      if (matches) matches.forEach(u => imgUrls.add(u.split('?')[0] + '?format=jpg&name=orig'));
+      // Extract profile info
+      const nameMatch = html.match(/<title>([^<]+)</);
+      const avatarMatch = html.match(/https:\/\/pbs\.twimg\.com\/profile_images\/[^\s"<>]+/);
+      const bannerMatch = html.match(/https:\/\/pbs\.twimg\.com\/profile_banners\/[^\s"<>]+/);
       
-      // Find video poster images
-      const videoMatches = html.match(/https:\/\/pbs\.twimg\.com\/[^\s"<>]*video[^\s"<>]*/g);
-      if (videoMatches) videoMatches.forEach(u => imgUrls.add(u));
+      if (nameMatch || avatarMatch) {
+        profile = {
+          username: cleanUser,
+          displayName: nameMatch?.[1]?.split('(')[0].trim() || cleanUser,
+          avatar: avatarMatch?.[0] || null,
+          banner: bannerMatch?.[0] || null
+        };
+      }
       
-      // Find tweet-specific media
-      const tweetMedia = html.match(/https:\/\/pbs\.twimg\.com\/media\/[A-Za-z0-9_-]+/g);
-      if (tweetMedia) tweetMedia.forEach(u => imgUrls.add(u + '?format=jpg&name=orig'));
-      
-      imgUrls.forEach(url => {
-        const isVideo = url.includes('video');
-        mediaItems.push({
-          type: isVideo ? 'video' : 'image',
-          url,
-          thumbnail: url.replace('name=orig', 'name=thumb'),
-          name: url.match(/([A-Za-z0-9_-]+)\?/)?.[1] || url.split('/').pop()
-        });
-      });
-    } catch {}
+      // Extract tweets and media
+      const tweetBlocks = html.split('data-tweet-id="');
+      for (let i = 1; i < tweetBlocks.length; i++) {
+        const block = tweetBlocks[i];
+        const tweetId = block.match(/^(\d+)/)?.[1];
+        if (!tweetId) continue;
+        scannedTweets++;
+        
+        // Extract text
+        const textMatch = block.match(/<p[^>]*dir="ltr"[^>]*>([\s\S]*?)<\/p>/);
+        const tweetText = textMatch?.[1]?.replace(/<[^>]+>/g, '').trim() || '';
+        const tweetUrl = `https://twitter.com/${cleanUser}/status/${tweetId}`;
+        
+        // Extract images
+        const imgMatches = block.matchAll(/https:\/\/pbs\.twimg\.com\/media\/([A-Za-z0-9_-]+)\.([a-z]+)/g);
+        for (const match of imgMatches) {
+          const mediaId = match[1];
+          const ext = match[2];
+          const url = `https://pbs.twimg.com/media/${mediaId}.${ext}?format=${ext}&name=orig`;
+          if (!media.find(m => m.url === url)) {
+            media.push({
+              id: `${tweetId}_${media.length}`,
+              url,
+              type: 'photo',
+              width: null,
+              height: null,
+              duration: null,
+              tweetId,
+              tweetText,
+              tweetUrl,
+              ext
+            });
+          }
+        }
+        
+        // Extract videos
+        const videoMatches = block.matchAll(/https:\/\/video\.twimg\.com\/[^\s"<>]+\.mp4[^\s"<>]*/g);
+        for (const match of videoMatches) {
+          const url = match[0];
+          if (!media.find(m => m.url === url)) {
+            media.push({
+              id: `${tweetId}_${media.length}`,
+              url,
+              type: 'video',
+              width: null,
+              height: null,
+              duration: null,
+              tweetId,
+              tweetText,
+              tweetUrl,
+              ext: 'mp4'
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Syndication error:', e.message);
+    }
 
-    // Method 2: Try Nitter for more media
+    // Method 2: Try Nitter instances for more media
     const nitters = ['https://nitter.poast.org', 'https://nitter.privacydev.net'];
     for (const nitter of nitters) {
-      if (mediaItems.length >= 30) break;
+      if (media.length >= 50) break;
       try {
         const r = await fetch(`${nitter}/${cleanUser}/media`, {
           headers: { 'User-Agent': UA },
-          signal: AbortSignal.timeout(6000),
+          signal: AbortSignal.timeout(8000),
           redirect: 'follow'
         });
         if (r.ok) {
           const html = await r.text();
-          const imgs = html.match(/https:\/\/pbs\.twimg\.com\/media\/[A-Za-z0-9_-]+\.[a-z]+/g);
-          if (imgs) {
-            imgs.forEach(url => {
-              if (!mediaItems.find(m => m.url.startsWith(url.split('.')[0]))) {
-                mediaItems.push({
-                  type: 'image',
-                  url: url + '?name=orig',
-                  thumbnail: url + '?name=thumb',
-                  name: url.split('/').pop()
-                });
-              }
-            });
+          const imgs = html.matchAll(/https:\/\/pbs\.twimg\.com\/media\/([A-Za-z0-9_-]+)\.([a-z]+)/g);
+          for (const match of imgs) {
+            const mediaId = match[1];
+            const ext = match[2];
+            const url = `https://pbs.twimg.com/media/${mediaId}.${ext}?format=${ext}&name=orig`;
+            if (!media.find(m => m.url === url)) {
+              media.push({
+                id: `nitter_${media.length}`,
+                url,
+                type: 'photo',
+                width: null,
+                height: null,
+                duration: null,
+                tweetId: null,
+                tweetText: '',
+                tweetUrl: null,
+                ext
+              });
+            }
           }
         }
       } catch {}
     }
 
-    // Filter
-    let filtered = mediaItems;
-    if (type === 'images') filtered = mediaItems.filter(m => m.type === 'image');
-    else if (type === 'videos') filtered = mediaItems.filter(m => m.type === 'video');
+    // Count by type
+    const counts = {
+      total: media.length,
+      photo: media.filter(m => m.type === 'photo').length,
+      video: media.filter(m => m.type === 'video').length,
+      gif: media.filter(m => m.type === 'gif').length
+    };
 
-    // Deduplicate
-    const seen = new Set();
-    filtered = filtered.filter(m => {
-      const key = m.url.split('?')[0];
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     return res.json({
-      username: cleanUser,
-      media: filtered,
-      total: filtered.length,
-      hasMore: false,
-      stats: { images: filtered.filter(m => m.type === 'image').length, videos: filtered.filter(m => m.type === 'video').length }
+      profile,
+      media,
+      counts,
+      scannedTweets,
+      fetchedAt: new Date().toISOString(),
+      fromCache: false
     });
   } catch (e) {
-    return res.json({ error: e.message, media: mediaItems, total: mediaItems.length, stats: { images: 0, videos: 0 } });
+    return res.status(500).json({ error: e.message, media: [], counts: { total: 0, photo: 0, video: 0, gif: 0 } });
   }
 }
