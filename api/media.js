@@ -21,19 +21,32 @@ const __origin = (req) => {
   return 'null';
 };
 
-// legacy duplicate handler (unreachable) — removed by AbuNawaf hardening
-async function __legacyHandler(req, res) {
-  __ABUNAWAF_HARDENED__: if (!__rate(req, res)) return;
-  res.setHeader('Access-Control-Allow-Origin', __origin(req)); res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  
-  const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-  const { username, force = false } = body;
-  
-  if (!username) return res.status(400).json({ error: 'Username required' });
+// X Media Vault - Advanced Twitter/X Intelligence & Media Extraction
+// Deep profile analysis with comprehensive media harvesting
+
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+// Advanced Twitter profile extraction
+async function getTwitterProfile(username) {
+  const profile = {
+    found: false,
+    username,
+    displayName: '',
+    bio: '',
+    location: '',
+    website: '',
+    joinDate: '',
+    followers: 0,
+    following: 0,
+    tweets: 0,
+    likes: 0,
+    isVerified: false,
+    isProtected: false,
+    profileImage: '',
+    profileBanner: '',
+    externalUrl: '',
+    metadata: {}
+  };
   
   try {
     // Method 1: Syndication API (rich data)
@@ -115,7 +128,39 @@ async function __legacyHandler(req, res) {
   } catch (e) {
     profile.error = e.message;
   }
-  
+
+  // Method 3: FxTwitter API — مصدر عام موثوق لا يحجب مراكز البيانات
+  if (!profile.found) {
+    try {
+      const fxr = await fetch(`https://api.fxtwitter.com/${encodeURIComponent(username)}`, {
+        headers: { 'User-Agent': UA, Accept: 'application/json' },
+        signal: AbortSignal.timeout(8000)
+      });
+      if (fxr.ok) {
+        const fx = (await fxr.json()).user || {};
+        Object.assign(profile, {
+          found: true,
+          username: fx.screen_name || username,
+          displayName: fx.name || '',
+          bio: fx.description || '',
+          location: fx.location || '',
+          website: fx.website?.display_url || '',
+          joinDate: fx.joined || '',
+          followers: fx.followers ?? 0,
+          following: fx.following ?? 0,
+          tweets: fx.tweets ?? 0,
+          likes: fx.likes ?? 0,
+          isVerified: !!fx.verification?.verified,
+          isProtected: !!fx.protected,
+          profileImage: fx.avatar_url || '',
+          profileBanner: fx.banner_url || '',
+          externalUrl: fx.website?.url || '',
+          metadata: { id: fx.id, mediaCount: fx.media_count ?? 0, source: 'FxTwitter' }
+        });
+      }
+    } catch {}
+  }
+
   return profile;
 }
 
@@ -360,7 +405,8 @@ async function crossPlatformCorrelation(username, profile) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', __origin(req)); res.setHeader('Vary', 'Origin');
+  if (!__rate(req, res)) return;
+  res.setHeader('Access-Control-Allow-Origin', __origin(req));
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
